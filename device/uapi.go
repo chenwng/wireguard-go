@@ -52,6 +52,9 @@ func (device *Device) IpcGetOperation(socket *bufio.Writer) error {
 		device.peers.RLock()
 		defer device.peers.RUnlock()
 
+		device.obfuscation.RLock()
+		defer device.obfuscation.RUnlock()
+
 		// serialize device related values
 
 		if !device.staticIdentity.privateKey.IsZero() {
@@ -64,6 +67,15 @@ func (device *Device) IpcGetOperation(socket *bufio.Writer) error {
 
 		if device.net.fwmark != 0 {
 			send(fmt.Sprintf("fwmark=%d", device.net.fwmark))
+		}
+
+		if len(device.obfuscation.keys) > 0 {
+			keys := []string{}
+			for _, k := range device.obfuscation.keys {
+				keys = append(keys, string(k))
+			}
+
+			send(fmt.Sprintf("obfuscation_keys=%s", strings.Join(keys, ",")))
 		}
 
 		// serialize each peer state
