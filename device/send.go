@@ -258,6 +258,8 @@ func (device *Device) SendHandshakeCookie(initiatingElem *QueueHandshakeElement)
 		return err
 	}
 
+	device.obfuscate(packet)
+
 	device.net.bind.Send(packet, initiatingElem.endpoint)
 	return nil
 }
@@ -676,6 +678,42 @@ func padMessage(p []byte, paddingLen int) ([]byte, error) {
 	}
 
 	return writer.Bytes(), nil
+}
+
+func reverse(a []byte) {
+	for i, j := 0, len(a)-1; i < len(a)/2; i, j = i+2, j-2 {
+		t := a[i]
+		a[i] = a[j]
+		a[j] = t
+	}
+}
+
+func xor(a, b []byte) {
+	l := len(b)
+	for i, j := len(a)-1, 0; i >= 0; i, j = i-1, j+1 {
+		if j >= l {
+			j = 0
+		}
+		a[i] ^= b[j]
+	}
+}
+
+func (device *Device) obfuscate(a []byte) {
+	reverse(a)
+	if len(device.obfsKeys) > 0 {
+		for _, key := range device.obfsKeys {
+			xor(a, key)
+		}
+	}
+}
+
+func (device *Device) deobfuscate(a []byte) {
+	if len(device.obfsKeys) > 0 {
+		for _, key := range device.obfsKeys {
+			xor(a, key)
+		}
+	}
+	reverse(a)
 }
 
 func init() {
