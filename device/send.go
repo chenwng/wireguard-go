@@ -8,6 +8,7 @@ package device
 import (
 	"bytes"
 	"encoding/binary"
+	"math/rand"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -45,11 +46,12 @@ import (
 type QueueOutboundElement struct {
 	dropped int32
 	sync.Mutex
-	buffer  *[MaxMessageSize]byte // slice holding the packet data
-	packet  []byte                // slice of "buffer" (always!)
-	nonce   uint64                // nonce for encryption
-	keypair *Keypair              // keypair for encryption
-	peer    *Peer                 // related peer
+	buffer    *[MaxMessageSize]byte // slice holding the packet data
+	packet    []byte                // slice of "buffer" (always!)
+	nonce     uint64                // nonce for encryption
+	keypair   *Keypair              // keypair for encryption
+	peer      *Peer                 // related peer
+	keepalive bool                  // indicate this is a keepalive packet
 }
 
 func (device *Device) NewOutboundElement() *QueueOutboundElement {
@@ -123,7 +125,13 @@ func (peer *Peer) SendKeepalive() bool {
 		return false
 	}
 	elem := peer.device.NewOutboundElement()
-	elem.packet = nil
+	// Craft a keepalive packet
+	kp, err := padMessage([]byte{0xff}, rand.Intn(int(peer.device.tun.mtu-MessageTransportHeaderSize-1)))
+	if err != nil {
+		peer.device.log.Error.Println(peer, "- Failed to craft keepalive packet")
+	}
+	elem.packet = kp
+	elem.keepalive = true
 	select {
 	case peer.queue.nonce <- elem:
 		peer.device.log.Debug.Println(peer, "- Sending keepalive packet")
@@ -172,6 +180,12 @@ func (peer *Peer) SendHandshakeInitiation(isRetry bool) error {
 	peer.timersAnyAuthenticatedPacketTraversal()
 	peer.timersAnyAuthenticatedPacketSent()
 
+	packet, err = padMessage(packet, rand.Intn(int(peer.device.tun.mtu-MessageInitiationSize)))
+	if err != nil {
+		peer.device.log.Error.Println(peer, "- Failed to pad initiation message:", err)
+		return err
+	}
+
 	err = peer.SendBuffer(packet)
 	if err != nil {
 		peer.device.log.Error.Println(peer, "- Failed to send handshake initiation", err)
@@ -210,6 +224,12 @@ func (peer *Peer) SendHandshakeResponse() error {
 	peer.timersAnyAuthenticatedPacketTraversal()
 	peer.timersAnyAuthenticatedPacketSent()
 
+	packet, err = padMessage(packet, rand.Intn(int(peer.device.tun.mtu-MessageResponseSize)))
+	if err != nil {
+		peer.device.log.Error.Println(peer, "- Failed to pad response message:", err)
+		return err
+	}
+
 	err = peer.SendBuffer(packet)
 	if err != nil {
 		peer.device.log.Error.Println(peer, "- Failed to send handshake response", err)
@@ -231,7 +251,14 @@ func (device *Device) SendHandshakeCookie(initiatingElem *QueueHandshakeElement)
 	var buff [MessageCookieReplySize]byte
 	writer := bytes.NewBuffer(buff[:0])
 	binary.Write(writer, binary.LittleEndian, reply)
-	device.net.bind.Send(writer.Bytes(), initiatingElem.endpoint)
+
+	packet, err := padMessage(writer.Bytes(), rand.Intn(int(device.tun.mtu-MessageCookieReplySize)))
+	if err != nil {
+		device.log.Error.Println("- Failed to pad handshake message:", err)
+		return err
+	}
+
+	device.net.bind.Send(packet, initiatingElem.endpoint)
 	return nil
 }
 
@@ -617,7 +644,7 @@ func (peer *Peer) RoutineSequentialSender() {
 			// send message and return buffer to pool
 
 			err := peer.SendBuffer(elem.packet)
-			if len(elem.packet) != MessageKeepaliveSize {
+			if !elem.keepalive {
 				peer.timersDataSent()
 			}
 			device.PutMessageBuffer(elem.buffer)
@@ -630,4 +657,27 @@ func (peer *Peer) RoutineSequentialSender() {
 			peer.keepKeyFreshSending()
 		}
 	}
+}
+
+// padMessage generates random noise bytes and appends it to p
+func padMessage(p []byte, paddingLen int) ([]byte, error) {
+	buff := make([]byte, len(p)+paddingLen)
+	writer := bytes.NewBuffer(buff[:0])
+	noise := make([]byte, paddingLen)
+	if _, err := rand.Read(noise); err != nil {
+		return []byte{}, err
+	}
+	if _, err := writer.Write(p); err != nil {
+		return []byte{}, err
+	}
+
+	if _, err := writer.Write(noise); err != nil {
+		return []byte{}, err
+	}
+
+	return writer.Bytes(), nil
+}
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
 }

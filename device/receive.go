@@ -149,8 +149,6 @@ func (device *Device) RoutineReceiveIncoming(IP int, bind conn.Bind) {
 		packet := buffer[:size]
 		msgType := binary.LittleEndian.Uint32(packet[:4])
 
-		var okay bool
-
 		switch msgType {
 
 		// check if transport
@@ -207,30 +205,29 @@ func (device *Device) RoutineReceiveIncoming(IP int, bind conn.Bind) {
 		// otherwise it is a fixed size & handshake related packet
 
 		case MessageInitiationType:
-			okay = len(packet) == MessageInitiationSize
+			packet = packet[:MessageInitiationSize]
 
 		case MessageResponseType:
-			okay = len(packet) == MessageResponseSize
+			packet = packet[:MessageResponseSize]
 
 		case MessageCookieReplyType:
-			okay = len(packet) == MessageCookieReplySize
+			packet = packet[:MessageCookieReplySize]
 
 		default:
 			logDebug.Println("Received message with unknown type")
+			continue
 		}
 
-		if okay {
-			if (device.addToHandshakeQueue(
-				device.queue.handshake,
-				QueueHandshakeElement{
-					msgType:  msgType,
-					buffer:   buffer,
-					packet:   packet,
-					endpoint: endpoint,
-				},
-			)) {
-				buffer = device.GetMessageBuffer()
-			}
+		if (device.addToHandshakeQueue(
+			device.queue.handshake,
+			QueueHandshakeElement{
+				msgType:  msgType,
+				buffer:   buffer,
+				packet:   packet,
+				endpoint: endpoint,
+			},
+		)) {
+			buffer = device.GetMessageBuffer()
 		}
 	}
 }
@@ -570,7 +567,7 @@ func (peer *Peer) RoutineSequentialReceiver() {
 
 		// check for keepalive
 
-		if len(elem.packet) == 0 {
+		if elem.packet[0] == 0xff {
 			logDebug.Println(peer, "- Receiving keepalive packet")
 			continue
 		}
