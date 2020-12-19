@@ -88,7 +88,10 @@ type Device struct {
 		mtu    int32
 	}
 
-	obfsKeys [][]byte
+	obfuscation struct {
+		keys [][]byte
+		sync.RWMutex
+	}
 }
 
 /* Converts the peer into a "zombie", which remains in the peer map,
@@ -309,10 +312,7 @@ func NewDevice(tunDevice tun.Device, logger *Logger) *Device {
 	go device.RoutineReadFromTUN()
 	go device.RoutineTUNEventReader()
 
-	device.obfsKeys = [][]byte{
-		{0xaa, 0xbb, 0xcc, 0xdd, 0xee},
-		{0x11, 0x22, 0x33, 0x44},
-	}
+	device.obfuscation.keys = make([][]byte, 0)
 
 	return device
 }

@@ -700,19 +700,23 @@ func xor(a, b []byte) {
 
 func (device *Device) obfuscate(a []byte) {
 	reverse(a)
-	if len(device.obfsKeys) > 0 {
-		for _, key := range device.obfsKeys {
+	device.obfuscation.RLock()
+	if len(device.obfuscation.keys) > 0 {
+		for _, key := range device.obfuscation.keys {
 			xor(a, key)
 		}
 	}
+	device.obfuscation.RUnlock()
 }
 
 func (device *Device) deobfuscate(a []byte) {
-	if len(device.obfsKeys) > 0 {
-		for _, key := range device.obfsKeys {
+	device.obfuscation.RLock()
+	if len(device.obfuscation.keys) > 0 {
+		for _, key := range device.obfuscation.keys {
 			xor(a, key)
 		}
 	}
+	device.obfuscation.RUnlock()
 	reverse(a)
 }
 
