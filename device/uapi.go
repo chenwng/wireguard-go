@@ -7,7 +7,7 @@ package device
 
 import (
 	"bufio"
-	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -211,7 +211,16 @@ func (device *Device) IpcSetOperation(socket *bufio.Reader) error {
 			case "obfuscation_keys":
 				logDebug.Println("UAPI: Updating obfuscation keys")
 				device.obfuscation.Lock()
-				device.obfuscation.keys = bytes.Split([]byte(value), []byte(","))
+				hs := [][]byte{}
+				keys := strings.Split(value, ",")
+				for _, key := range keys {
+					h, err := hex.DecodeString(key)
+					if err != nil {
+						return &IPCError{ipc.IpcErrorInvalid}
+					}
+					hs = append(hs, h)
+				}
+				device.obfuscation.keys = hs
 				device.obfuscation.Unlock()
 			case "public_key":
 				// switch to peer configuration
